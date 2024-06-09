@@ -1,0 +1,111 @@
+<html>
+    <head>
+        <title>Strava Editor</title>
+        <script src="ag-grid-community.min.js"></script>
+        <script src="strava.js"></script>
+
+        <style>
+            .ag-disabled {
+                cursor: default !important;
+            }
+        </style>
+    </head>
+    <body>
+        <div style="display: flex; flex-direction: column; height: 100%" class="ag-theme-quartz">
+            <div id="grid" style="flex: 1; height: 100%"></div>
+            <div style="flex: none; padding-top: 10px; padding-bottom: 3px; display: flex; justify-content: center">
+                <span style="cursor: pointer" class="ag-disabled" id="prev-page">
+                    <span class="ag-icon ag-icon-previous"></span>
+                </span>
+                <span style="line-height: 16px; padding: 0px 14px; width: 50px" id="page-indicator">Page 1</span>
+                <span style="cursor: pointer" id="next-page">
+                    <span class="ag-icon ag-icon-next"></span>
+                </span>
+            </div>
+        </div>
+        <script>
+            const stravaClient = new URLSearchParams(window.location.search).get("stravaClient").split("-")
+            const strava = new Strava(stravaClient[0], stravaClient[1])
+
+            const formatDate = d => [
+                    d.getMonth()+1,
+                    d.getDate(),
+                    d.getFullYear(),
+                ].join('/') + " " + [
+                    String(d.getHours() % 12 == 0 ? 12 : (d.getHours() % 12)).padStart(2, "0"),
+                    String(d.getMinutes()).padStart(2, "0"),
+                    String(d.getSeconds()).padStart(2, "0"),
+                ].join(':') + (d.getHours() < 12 ?  " am" : " pm")
+
+            const gridOptions = {
+                rowData: [],
+                onCellEditingStopped: evt => {
+                    strava.updateActivity(evt.data)
+                },
+                columnDefs: [
+                    { field: "name", editable: true, flex: 1 },
+                    { field: "sport_type", headerName: "Sport" },
+                    { field: "start_date", headerName: "Date", valueFormatter: x => formatDate(new Date(x.value)) },
+                    { field: "distance", valueFormatter: x => x ? `${Math.floor(x.value / 16.0934) / 100} mi` : x },
+                    { field: "commute", headerName: "Is Commute", editable: params => params.data.commute === false },
+                ]
+            };
+
+            const gridElement = document.getElementById("grid");
+            const grid = agGrid.createGrid(gridElement, gridOptions);
+
+            const prevPageElement = document.getElementById("prev-page")
+            const nextPageElement = document.getElementById("next-page")
+            const pageIndicatorElement = document.getElementById("page-indicator")
+
+            let page = 1
+            let loading = false
+            let maxPageReached = false
+
+            prevPageElement.onclick = () => page <= 1 ? null : loadPage(page - 1)
+            nextPageElement.onclick = () => maxPageReached ? null : loadPage(page + 1)
+
+            const loadedPage = pageNumber => {
+                console.log(`Loaded page ${pageNumber}`)
+                pageIndicatorElement.innerText = `Page ${pageNumber}`
+                loading = false
+                grid.hideOverlay()
+
+                if (pageNumber <= 1) {
+                    prevPageElement.classList.add("ag-disabled")
+                } else {
+                    prevPageElement.classList.remove("ag-disabled")
+                }
+
+                if (maxPageReached) {
+                    nextPageElement.classList.add("ag-disabled")
+                } else {
+                    nextPageElement.classList.remove("ag-disabled")
+                }
+
+                page = pageNumber
+            };
+
+            const loadPage = pageNumber => {
+                if (loading) return
+                loading = true
+                grid.showLoadingOverlay()
+                strava.listActivities(pageNumber)
+                    .then(activities => {
+                        if (activities.length < PAGE_SIZE) {
+                            maxPageReached = true
+                        } else {
+                            maxPageReached = false
+                        }
+                        loadedPage(pageNumber)
+                        grid.setGridOption("rowData", activities)
+                    })
+                    .catch(() => {
+                        loadedPage(pageNumber)
+                    })
+            }
+
+            loadPage(page)
+        </script>
+    </body>
+</html>
